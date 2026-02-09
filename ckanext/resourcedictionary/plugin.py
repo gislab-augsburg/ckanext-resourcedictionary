@@ -12,6 +12,7 @@ from ckanext.datastore.interfaces import IDataDictionaryForm
 
 from ckanext.resourcedictionary.views.resource_dictionary import resource_dictionary
 from ckanext.resourcedictionary.logic.action.create import resource_dictionary_create
+from ckanext.resourcedictionary.logic.action.datastore_search import datastore_search
 
 
 PLUGIN_KEY = 'resourcedictionary'
@@ -41,7 +42,9 @@ class ResourcedictionaryPlugin(plugins.SingletonPlugin):
     # IActions
     def get_actions(self):
         return {
-            'resource_dictionary_create': resource_dictionary_create
+            'resource_dictionary_create': resource_dictionary_create,
+            # Ensure datastore_search returns enriched field info consistently
+            'datastore_search': datastore_search,
         }
 
     # IDataDictionaryForm
