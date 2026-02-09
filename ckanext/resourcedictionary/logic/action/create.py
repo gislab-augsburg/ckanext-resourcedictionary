@@ -45,6 +45,16 @@ def _get_resource_datastore_info(resource_id):
         }
 
 
+
+def _get_field_info_value(field, key):
+    # Backwards + forwards compatible access to field metadata.
+    if isinstance(field, dict):
+        info = field.get(u'info')
+        if isinstance(info, dict) and key in info:
+            return info.get(key)
+        return field.get(key)
+    return None
+
 def _update_dictionary_fields_extras(context, resource_id, fields):
     u'''Helper function that adds dictionary fields and
     field labels as an extra resource fields called

@@ -84,10 +84,20 @@ class ResourceDictionaryView(MethodView):
         form_fields = data.get(u'field', [])
         form_fields_info = data.get(u'info', [])
 
-        fields = [{u'id': f[u'id'],
-                   u'type': fi[u'type'],
-                   u'info': fi if isinstance(fi, dict) else {}
-                   } for f, fi in zip(form_fields, form_fields_info)]
+        fields = []
+        for f, fi in zip(form_fields, form_fields_info):
+            fi = fi if isinstance(fi, dict) else {}
+            field_dict = {
+                u'id': f.get(u'id'),
+                u'type': fi.get(u'type'),
+            }
+            # Store extra metadata as top-level keys so that CKAN 2.11+
+            # IDataDictionaryForm schema validators can store them as plugin_data.
+            for k, v in fi.items():
+                if k == u'type':
+                    continue
+                field_dict[k] = v
+            fields.append(field_dict)
 
         data_dict = {
             u'resource_id': resource_id,
