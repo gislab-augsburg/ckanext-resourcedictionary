@@ -12,7 +12,10 @@ from ckanext.datastore.interfaces import IDataDictionaryForm
 
 from ckanext.resourcedictionary.views.resource_dictionary import resource_dictionary
 from ckanext.resourcedictionary.logic.action.create import resource_dictionary_create
-from ckanext.resourcedictionary.logic.action.datastore_search import datastore_search
+# NOTE: CKAN (>=2.11) does not allow action name conflicts.
+# We therefore do NOT register an IActions override for core actions like
+# 'datastore_search'. Instead, we monkeypatch the action registry after
+# all plugins are loaded (in update_config).
 
 
 PLUGIN_KEY = 'resourcedictionary'
@@ -35,6 +38,15 @@ class ResourcedictionaryPlugin(plugins.SingletonPlugin):
             'dictionary_fields dictionary_labels dictionary_notes'
         )
 
+        # Make datastore_search field metadata deterministic.
+        #
+        # Some deployments (eg uWSGI with lazy-apps) can exhibit behaviour where
+        # datastore_search sometimes returns only minimal field dicts
+        # (id/type) even though datastore_info correctly includes enriched
+        # info/plugin_data. CKAN does not allow action-name conflicts via
+        # IActions, so we patch the action registry in-place.
+        self._patch_datastore_search_action()
+
     # IBlueprint
     def get_blueprint(self):
         return [resource_dictionary]
@@ -43,9 +55,84 @@ class ResourcedictionaryPlugin(plugins.SingletonPlugin):
     def get_actions(self):
         return {
             'resource_dictionary_create': resource_dictionary_create,
-            # Ensure datastore_search returns enriched field info consistently
-            'datastore_search': datastore_search,
         }
+
+    def _patch_datastore_search_action(self) -> None:
+        """Monkeypatch ckan.logic.action._actions['datastore_search'].
+
+        We merge enriched field metadata from datastore_info into the
+        datastore_search response so clients always see field['info'].
+        """
+        try:
+            import ckan.logic.action as logic_action  # type: ignore
+        except Exception:
+            return
+
+        actions = getattr(logic_action, '_actions', None)
+        if not isinstance(actions, dict):
+            return
+
+        # Idempotency guard
+        sentinel = '__resourcedictionary_patched__'
+        if actions.get(sentinel):
+            return
+
+        original = actions.get('datastore_search')
+        datastore_info = actions.get('datastore_info')
+        if not callable(original) or not callable(datastore_info):
+            return
+
+        def patched_datastore_search(context, data_dict):
+            result = original(context, data_dict)
+
+            try:
+                # Defensive: only post-process successful responses
+                fields = result.get('fields')
+                if not isinstance(fields, list) or not fields:
+                    return result
+
+                # If already enriched, do nothing
+                if any(isinstance(f, dict) and f.get('info') for f in fields):
+                    return result
+
+                # Pull the authoritative enriched schema from datastore_info
+                info_res = datastore_info(context, {'id': data_dict.get('id')})
+                info_fields = info_res.get('fields')
+                if not isinstance(info_fields, list) or not info_fields:
+                    return result
+
+                by_id = {
+                    f.get('id'): f
+                    for f in info_fields
+                    if isinstance(f, dict) and f.get('id')
+                }
+
+                merged = []
+                for f in fields:
+                    if not isinstance(f, dict):
+                        merged.append(f)
+                        continue
+                    fid = f.get('id')
+                    src = by_id.get(fid)
+                    if isinstance(src, dict):
+                        # Copy any extra keys from datastore_info (incl. info)
+                        out = dict(f)
+                        for k, v in src.items():
+                            if k not in out:
+                                out[k] = v
+                        merged.append(out)
+                    else:
+                        merged.append(f)
+
+                result['fields'] = merged
+            except Exception:
+                # Never break the API on enrichment failures
+                return result
+
+            return result
+
+        actions['datastore_search'] = patched_datastore_search
+        actions[sentinel] = True
 
     # IDataDictionaryForm
     def update_datastore_create_schema(self, schema: Schema) -> Schema:
