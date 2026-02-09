@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 import ckan.plugins.toolkit as toolkit
 
 
+@toolkit.side_effect_free
 @toolkit.chained_action
 def datastore_search(original_action, context: dict[str, Any], data_dict: dict[str, Any]) -> dict[str, Any]:
     """Chained action that makes datastore_search return enriched field metadata.

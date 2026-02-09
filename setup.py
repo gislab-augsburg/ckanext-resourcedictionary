@@ -16,7 +16,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # http://packaging.python.org/en/latest/tutorial.html#version
-    version='1.1.3',
+    version='1.1.4',
 
     description='''Extends the default CKAN Data Dictionary functionality
     by adding possibility to create data dictionary
