@@ -55,7 +55,7 @@ class ResourcedictionaryPlugin(plugins.SingletonPlugin):
         """Extend datastore_create schema so extra per-field metadata is
         validated and stored in plugin_data (CKAN >= 2.11).
         """
-        ignore_empty = toolkit.get_validator('ignore_empty')
+        ignore_missing = toolkit.get_validator('ignore_missing')
         unicode_only = toolkit.get_validator('unicode_only')
         to_datastore_plugin_data = cast(
             ValidatorFactory, toolkit.get_validator('to_datastore_plugin_data')
@@ -72,7 +72,7 @@ class ResourcedictionaryPlugin(plugins.SingletonPlugin):
             'db_type',
             'type_override',
         ):
-            fields_schema[key] = [ignore_empty, unicode_only, to_rd]
+            fields_schema[key] = [ignore_missing, unicode_only, to_rd]
 
         schema['fields'] = fields_schema
         return schema
@@ -80,12 +80,26 @@ class ResourcedictionaryPlugin(plugins.SingletonPlugin):
     def update_datastore_info_field(
         self, field: dict[str, Any], plugin_data: dict[str, Any]
     ):
-        """Expose stored plugin_data under field['info'] for backwards compatibility."""
-        data = plugin_data.get(PLUGIN_KEY, {})
-        if data:
-            info = field.get('info') or {}
-            if not isinstance(info, dict):
-                info = {}
+        """Expose stored plugin_data under field['info'].
+
+        Compatibility behavior:
+        - Always provide the known keys in field['info'] so downstream scripts that
+          expect them (even as empty strings) don't break.
+        - Preserve empty-string values instead of dropping them.
+        """
+        data = plugin_data.get(PLUGIN_KEY, {}) or {}
+        info = field.get('info') or {}
+        if not isinstance(info, dict):
+            info = {}
+
+        # Merge plugin_data from this plugin (may include empty strings)
+        if isinstance(data, dict):
             info.update(data)
-            field['info'] = info
+
+        # Ensure stable presence of expected keys
+        for k in ('condition', 'db_type', 'label', 'notes', 'opendata'):
+            if k not in info or info[k] is None:
+                info[k] = ''
+
+        field['info'] = info
         return field
